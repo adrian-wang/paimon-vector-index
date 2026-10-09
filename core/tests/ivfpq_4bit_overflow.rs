@@ -25,11 +25,11 @@ const ROWS: usize = 225;
 fn build_index(m: usize) -> IVFPQIndex {
     let mut index = IVFPQIndex::with_nbits(m, 1, m, 4, MetricType::L2, false);
     index.set_quantizer_centroids(vec![0.0; m]);
-    index.pq.centroids = vec![0.0; m * 16];
-    for sub in 0..m {
-        index.pq.centroids[sub * 16 + 1] = 1.0;
-    }
-    index.pq.rebuild_norms_cache();
+    // With one training vector per centroid, PQ copies the samples exactly.
+    // Each subquantizer gets centroid 1 = 1 and all other centroids = 0.
+    let mut training_data = vec![0.0; 16 * m];
+    training_data[m..2 * m].fill(1.0);
+    index.pq.train(&training_data, 16);
 
     // The first 200 distances equal 1, matching the full LUT maximum.
     // This isolates accumulation overflow from LUT-range calibration.
