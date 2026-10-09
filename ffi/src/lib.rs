@@ -504,12 +504,26 @@ fn checked_len(a: usize, b: usize, name: &str) -> Result<usize, String> {
         .ok_or_else(|| format!("{} length overflow", name))
 }
 
+fn validate_slice_layout<T>(ptr: *const T, len: usize, name: &str) -> Result<(), String> {
+    if len
+        .checked_mul(size_of::<T>())
+        .is_none_or(|bytes| bytes > isize::MAX as usize)
+    {
+        return Err(format!("{name} byte length overflow"));
+    }
+    if !ptr.is_aligned() {
+        return Err(format!("{name} pointer is not aligned"));
+    }
+    Ok(())
+}
+
 unsafe fn const_slice<'a, T>(ptr: *const T, len: usize, name: &str) -> Result<&'a [T], String> {
     if len == 0 {
         Ok(&[])
     } else if ptr.is_null() {
         Err(format!("{} pointer is null", name))
     } else {
+        validate_slice_layout(ptr, len, name)?;
         Ok(unsafe { slice::from_raw_parts(ptr, len) })
     }
 }
@@ -520,6 +534,7 @@ unsafe fn mut_slice<'a, T>(ptr: *mut T, len: usize, name: &str) -> Result<&'a mu
     } else if ptr.is_null() {
         Err(format!("{} pointer is null", name))
     } else {
+        validate_slice_layout(ptr, len, name)?;
         Ok(unsafe { slice::from_raw_parts_mut(ptr, len) })
     }
 }
@@ -1352,6 +1367,33 @@ pub unsafe extern "C" fn paimon_vindex_reader_search_batch_with_roaring_filter_v
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ffi_slices_reject_unaligned_and_oversized_buffers() {
+        let mut storage = [0u32; 2];
+        let unaligned = unsafe { storage.as_mut_ptr().cast::<u8>().add(1).cast::<f32>() };
+        assert!(unsafe { const_slice(unaligned, 1, "query") }
+            .unwrap_err()
+            .contains("not aligned"));
+        assert!(unsafe { mut_slice(unaligned, 1, "output") }
+            .unwrap_err()
+            .contains("not aligned"));
+        let oversized = isize::MAX as usize / size_of::<f32>() + 1;
+        assert!(unsafe { const_slice(storage.as_ptr(), oversized, "query") }
+            .unwrap_err()
+            .contains("overflow"));
+        assert!(
+            unsafe { mut_slice(storage.as_mut_ptr(), oversized, "output") }
+                .unwrap_err()
+                .contains("overflow")
+        );
+        assert!(unsafe { const_slice::<f32>(ptr::null(), 0, "query") }
+            .unwrap()
+            .is_empty());
+        assert!(unsafe { mut_slice::<f32>(ptr::null_mut(), 0, "output") }
+            .unwrap()
+            .is_empty());
+    }
 
     struct BatchReadState {
         data: Vec<u8>,
