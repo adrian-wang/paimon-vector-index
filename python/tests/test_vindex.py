@@ -63,6 +63,38 @@ def reader_from_bytes(data):
     return VectorIndexReader(VectorIndexInput(data))
 
 
+def test_python_native_operations_accept_unaligned_numpy_buffers():
+    def unaligned_copy(source):
+        result = np.ndarray(
+            source.shape, dtype=source.dtype,
+            buffer=bytearray(source.nbytes + 1), offset=1,
+        )
+        result[:] = source
+        assert result.flags.c_contiguous and not result.flags.aligned
+        return result
+
+    data = clustered_data(512, 8, 4)
+    ids = np.arange(len(data), dtype=np.int64)
+    options = {"index.type": "ivf_flat", "dimension": "8", "nlist": "4", "metric": "l2"}
+    output = io.BytesIO()
+    with VectorIndexTrainer.train(options, unaligned_copy(data)) as training:
+        with VectorIndexWriter(training) as writer:
+            writer.add_vectors(unaligned_copy(ids), unaligned_copy(data))
+            writer.write(output)
+
+    with reader_from_bytes(output.getvalue()) as reader:
+        reader.warmup_queries(unaligned_copy(data[:2]))
+        params = SearchParams.ivf(5, 4)
+        for actual, expected in zip(
+            reader.search(unaligned_copy(data[0]), params), reader.search(data[0], params)
+        ):
+            np.testing.assert_array_equal(actual, expected)
+        for actual, expected in zip(
+            reader.search_batch(unaligned_copy(data[:2]), params), reader.search_batch(data[:2], params)
+        ):
+            np.testing.assert_array_equal(actual, expected)
+
+
 def test_python_search_parameters_remain_algorithm_specific():
     params = SearchParams.diskann(top_k=10, l_search=200).to_ffi()
 

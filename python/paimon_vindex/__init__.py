@@ -464,14 +464,14 @@ def _float32_matrix(value, name):
     array = np.asarray(value, dtype=np.float32)
     if array.ndim != 2:
         raise ValueError(f"{name} must be a two-dimensional float32 array")
-    return np.ascontiguousarray(array)
+    return np.require(array, dtype=np.float32, requirements=["C", "A"])
 
 
 def _float32_vector(value, name):
     array = np.asarray(value, dtype=np.float32)
     if array.ndim != 1:
         raise ValueError(f"{name} must be a one-dimensional float32 array")
-    return np.ascontiguousarray(array)
+    return np.require(array, dtype=np.float32, requirements=["C", "A"])
 
 
 def _require_range_search():
@@ -551,7 +551,7 @@ def _int64_vector(value, name):
     array = np.asarray(value, dtype=np.int64)
     if array.ndim != 1:
         raise ValueError(f"{name} must be a one-dimensional int64 array")
-    return np.ascontiguousarray(array)
+    return np.require(array, dtype=np.int64, requirements=["C", "A"])
 
 
 def _bytes_buffer(value, name):
